@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UT R&T - Control de Turnos por API OCR</title>
+    <title>UT R&T - Control de Turnos por Google Vision OCR</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Conexión por API Rest OCR</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesamiento Directo con Google Vision API</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -232,14 +232,14 @@
     <div class="row g-3 mb-4">
         <div class="col-lg-5 col-md-6">
             <div class="card card-custom h-100 p-3">
-                <label class="form-label-ut"><i class="fa-solid fa-key me-2 text-warning"></i>API Key Credencial</label>
-                <input type="password" id="apiKeyInput" class="form-control form-control-ut mb-2" placeholder="Ingrese su API Key aquí">
+                <label class="form-label-ut"><i class="fa-solid fa-key me-2 text-warning"></i>Google Cloud Vision API Key</label>
+                <input type="password" id="apiKeyInput" class="form-control form-control-ut mb-2" placeholder="AIzaSy...">
                 
                 <label class="form-label-ut"><i class="fa-solid fa-file-image me-2 text-primary"></i>Cargar Imagen de Malla Real</label>
                 <input type="file" id="imageInput" class="form-control form-control-ut mb-2" accept="image/*" onchange="previewImageFile(this.files[0])">
                 
                 <div class="d-flex gap-2 mb-2">
-                    <button class="btn btn-ut-primary w-100" onclick="procesarImagenConAPI()"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Procesar vía API</button>
+                    <button class="btn btn-ut-primary w-100" onclick="procesarImagenConAPI()"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Procesar con Google Vision</button>
                 </div>
 
                 <button class="btn btn-outline-danger w-100 btn-sm" onclick="limpiarInterfaz()"><i class="fa-solid fa-eraser me-1"></i> Limpiar Campos Malla</button>
@@ -304,9 +304,9 @@
     <div class="card card-custom mb-4">
         <div class="card-header-ut d-flex justify-content-between align-items-center">
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
-                <i class="fa-solid fa-list-check me-2 text-danger"></i>Malla Operativa (Procesada por API)
+                <i class="fa-solid fa-list-check me-2 text-danger"></i>Malla Operativa (Procesada por Google OCR)
             </h5>
-            <span class="badge bg-dark px-3 py-2">Respuesta Remota</span>
+            <span class="badge bg-dark px-3 py-2">Respuesta Directa</span>
         </div>
         
         <div class="card-body p-0">
@@ -360,11 +360,6 @@
 </div>
 
 <script>
-const API_CONFIG = {
-    ENDPOINT: 'https://tu-servidor.com/api/procesar-ocr', // Ajusta según la URL real de tu backend
-    API_KEY: '' 
-};
-
 const BASE_EMPLEADOS = {
     "1002966371": "Bedoya Narvaez Camilo Andres",
     "1005831741": "Lopez Ospina Deiby Alexis",
@@ -449,16 +444,27 @@ function previewImageFile(file) {
     reader.readAsDataURL(file);
 }
 
+// Convierte un archivo a formato Base64 para enviar a Google Vision
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            const base64Data = reader.result.split(',')[1];
+            resolve(base64Data);
+        };
+        reader.onerror = error => reject(error);
+    });
+}
+
 async function procesarImagenConAPI() {
     const fileInput = document.getElementById('imageInput');
-    const apiKeyInput = document.getElementById('apiKeyInput').value.trim();
+    const apiKey = document.getElementById('apiKeyInput').value.trim();
     const fileToProcess = archivoCargado || (fileInput.files ? fileInput.files[0] : null);
     const status = document.getElementById('statusOCR');
 
-    const apiKey = apiKeyInput || API_CONFIG.API_KEY;
-
     if (!apiKey) {
-        alert("Ingrese su API Key antes de enviar la solicitud.");
+        alert("Por favor ingrese su API Key de Google Cloud Vision.");
         return;
     }
     
@@ -468,43 +474,49 @@ async function procesarImagenConAPI() {
     }
 
     status.className = "badge bg-warning text-dark text-wrap p-2 w-100";
-    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Enviando imagen a la API...';
-
-    const formData = new FormData();
-    formData.append('image', fileToProcess);
-
-    const headers = {
-        'Authorization': `Bearer ${apiKey}`,
-        'x-api-key': apiKey
-    };
+    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Enviando a Google Cloud Vision...';
 
     try {
-        const response = await fetch(API_CONFIG.ENDPOINT, {
+        const base64Image = await fileToBase64(fileToProcess);
+        
+        const googleEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+
+        const requestBody = {
+            requests: [{
+                image: { content: base64Image },
+                features: [{ type: "TEXT_DETECTION" }]
+            }]
+        };
+
+        const response = await fetch(googleEndpoint, {
             method: 'POST',
-            headers: headers,
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
-            throw new Error(`Error en el servidor: ${response.status} ${response.statusText}`);
+            const errorData = await response.json();
+            throw new Error(errorData.error ? errorData.error.message : `Error HTTP: ${response.status}`);
         }
 
         const data = await response.json();
 
         status.className = "badge bg-success text-wrap p-2 w-100";
-        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Procesamiento API completado.';
+        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Procesamiento completado.';
 
-        if (typeof data === 'string' || data.textoBruto) {
-            parsearTextoMalla(data.textoBruto || data);
-        } else if (Array.isArray(data.items || data)) {
-            datosExtraidos = data.items || data;
-            renderizarMalla();
+        const textAnnotations = data.responses[0]?.textAnnotations;
+        if (textAnnotations && textAnnotations.length > 0) {
+            const textoBruto = textAnnotations[0].description;
+            parsearTextoMalla(textoBruto);
+        } else {
+            alert("Google Vision no detectó texto en la imagen.");
         }
 
     } catch (err) {
         status.className = "badge bg-danger text-wrap p-2 w-100";
-        status.innerHTML = 'Error al conectar con la API.';
-        console.error("Error API:", err);
+        status.innerHTML = 'Error al procesar con Google Vision.';
+        alert("Error: " + err.message);
+        console.error("Error API Google:", err);
     }
 }
 
@@ -575,7 +587,7 @@ function parsearTextoMalla(textoBruto) {
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se detectaron filas completas en la respuesta de la API.");
+        alert("No se detectaron filas completas en la imagen.");
         return;
     }
 
