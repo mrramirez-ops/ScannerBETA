@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UT R&T - Control de Turnos por API OCR</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --ut-primary: #002B49;
+            --ut-secondary: #005691;
+            --ut-accent: #E30613;
+            --ut-bg-light: #F4F6F8;
+            --ut-card-border: #E2E8F0;
+            --ut-text-dark: #1E293B;
+            --card-shadow: 0 4px 12px rgba(0, 43, 73, 0.08);
+        }
+
+        body {
+            background-color: var(--ut-bg-light);
+            font-family: 'Open Sans', sans-serif;
+            color: var(--ut-text-dark);
+            font-size: 0.92rem;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 700;
+        }
+
+        .navbar-custom {
+            background-color: var(--ut-primary);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            padding: 0.75rem 0;
+            border-bottom: 4px solid var(--ut-accent);
+        }
+
+        .brand-badge {
+            background-color: var(--ut-accent);
+            color: white;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 1.2rem;
+        }
+
+        .card-custom {
+            border: 1px solid var(--ut-card-border);
+            border-radius: 8px;
+            box-shadow: var(--card-shadow);
+            background: #ffffff;
+        }
+
+        .card-header-ut {
+            background-color: #ffffff;
+            border-bottom: 2px solid var(--ut-bg-light);
+            padding: 1rem 1.25rem;
+        }
+
+        .form-label-ut {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--ut-primary);
+            margin-bottom: 6px;
+        }
+
+        .form-control-ut {
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .btn-ut-primary {
+            background-color: var(--ut-primary);
+            color: white;
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+        }
+
+        .btn-ut-primary:hover {
+            background-color: var(--ut-secondary);
+            color: white;
+        }
+
+        .stat-card-ut {
+            border-radius: 8px;
+            padding: 1.25rem;
+            color: white;
+            box-shadow: var(--card-shadow);
+        }
+
+        .stat-card-ut.navy { background: linear-gradient(135deg, #002B49 0%, #00406C 100%); border-left: 5px solid var(--ut-accent); }
+        .stat-card-ut.blue { background: linear-gradient(135deg, #005691 0%, #0077C8 100%); border-left: 5px solid #38BDF8; }
+        .stat-card-ut.dark { background: linear-gradient(135deg, #1E293B 0%, #334155 100%); border-left: 5px solid #94A3B8; }
+        .stat-card-ut.red { background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); border-left: 5px solid #FCA5A5; }
+
+        .stat-card-title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+
+        .stat-card-value {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+
+        .table-responsive {
+            max-height: 550px;
+            overflow-y: auto;
+            border: 1px solid #E2E8F0;
+        }
+
+        .table-turnos thead tr:nth-child(1) th {
+            background-color: var(--ut-primary);
+            color: #FFFFFF;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .table-turnos thead tr:nth-child(2) th {
+            background-color: #001D32;
+            color: #94A3B8;
+            font-size: 0.7rem;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .image-preview-box {
+            height: 120px;
+            border: 2px dashed #CBD5E1;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background-color: #F8FAFC;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .image-preview-box.dragover {
+            border-color: var(--ut-accent);
+            background-color: #FEF2F2;
+        }
+
+        .image-preview-box img {
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        #loginOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 43, 73, 0.95);
+            z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .login-card {
+            background: white; width: 100%; max-width: 450px;
+            border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .login-header {
+            background: var(--ut-primary); color: white;
+            padding: 2rem 1.5rem; text-align: center;
+            border-bottom: 4px solid var(--ut-accent);
+        }
+    </style>
+</head>
+<body>
+
+<div id="loginOverlay">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="brand-badge d-inline-block mb-2">R&T</div>
+            <h4 class="mb-1 text-white">Unión Temporal R&T</h4>
+            <p class="mb-0 text-white-50" style="font-size: 0.85rem;">Ingrese sus datos para acceder</p>
+        </div>
+        <div class="p-4">
+            <div class="mb-3">
+                <label class="form-label-ut"><i class="fa-solid fa-id-card me-1 text-primary"></i>Número de Cédula</label>
+                <input type="text" id="loginCedula" class="form-control form-control-ut" placeholder="CC" value="">
+            </div>
+            <div class="mb-4">
+                <label class="form-label-ut"><i class="fa-solid fa-sack-dollar me-1 text-success"></i>Sueldo Actual ($)</label>
+                <input type="number" id="loginSueldo" class="form-control form-control-ut fw-bold text-dark" placeholder="$$" value="">
+            </div>
+            <button class="btn btn-ut-primary w-100 py-2 fs-6" onclick="validarIngreso()">
+                <i class="fa-solid fa-right-to-bracket me-2"></i>Ingresar a la Plantilla
+            </button>
+        </div>
+    </div>
+</div>
+
+<nav class="navbar navbar-expand-lg navbar-dark navbar-custom mb-4">
+    <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-3">
+            <div class="brand-badge">R&T</div>
+            <div>
+                <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Conexión por API Rest OCR</p>
+            </div>
+        </div>
+        <div class="text-end text-white">
+            <span class="fs-6 d-block" id="userWelcome"><i class="fa-solid fa-user-circle me-1"></i> Bienvenido</span>
+            <small class="text-white-50" id="userSubtext">Cédula: --</small>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+    
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5 col-md-6">
+            <div class="card card-custom h-100 p-3">
+                <label class="form-label-ut"><i class="fa-solid fa-key me-2 text-warning"></i>API Key Credencial</label>
+                <input type="password" id="apiKeyInput" class="form-control form-control-ut mb-2" placeholder="Ingrese su API Key aquí">
+                
+                <label class="form-label-ut"><i class="fa-solid fa-file-image me-2 text-primary"></i>Cargar Imagen de Malla Real</label>
+                <input type="file" id="imageInput" class="form-control form-control-ut mb-2" accept="image/*" onchange="previewImageFile(this.files[0])">
+                
+                <div class="d-flex gap-2 mb-2">
+                    <button class="btn btn-ut-primary w-100" onclick="procesarImagenConAPI()"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Procesar vía API</button>
+                </div>
+
+                <button class="btn btn-outline-danger w-100 btn-sm" onclick="limpiarInterfaz()"><i class="fa-solid fa-eraser me-1"></i> Limpiar Campos Malla</button>
+            </div>
+        </div>
+
+        <div class="col-lg-4 col-md-6">
+            <div class="card card-custom h-100 p-3">
+                <label class="form-label-ut"><i class="fa-solid fa-hand-pointer me-2"></i>Arrastra la Captura Aquí</label>
+                <div class="image-preview-box" id="dropArea" onclick="document.getElementById('imageInput').click()">
+                    <span class="text-muted" style="font-size: 0.85rem;" id="dropAreaText">
+                        <i class="fa-solid fa-cloud-arrow-up d-block fs-4 text-primary mb-1"></i>
+                        Arrastra la imagen aquí o <strong>haz clic para buscar</strong>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-12">
+            <div class="card card-custom h-100 p-3 bg-light">
+                <label class="form-label-ut"><i class="fa-solid fa-sack-dollar me-2 text-success"></i>Sueldo Base ($)</label>
+                <input type="number" id="inputSueldo" class="form-control form-control-ut fw-bold text-dark mb-2" onchange="recalcularNomina()">
+                <div id="statusOCR" class="badge bg-secondary text-wrap text-start p-2 w-100">Estado: Esperando imagen...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="stat-card-ut navy">
+                <div class="stat-card-title">Recargos Nocturnos (35%)</div>
+                <div class="stat-card-value" id="cardRN">0.00 hrs</div>
+                <div class="stat-card-sub" id="cardValRN">$ 0</div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+            <div class="stat-card-ut red">
+                <div class="stat-card-title">Fest. Con Compensa</div>
+                <div class="stat-card-value" id="cardFestComp">0.00 hrs</div>
+                <div class="stat-card-sub" id="cardValFestComp">0h Diurna / 0h Nocturna</div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+            <div class="stat-card-ut blue">
+                <div class="stat-card-title">Fest. Sin Compensa</div>
+                <div class="stat-card-value" id="cardFestNoComp">0.00 hrs</div>
+                <div class="stat-card-sub" id="cardValFestNoComp">0h Diurna / 0h Nocturna</div>
+            </div>
+        </div>
+
+        <div class="col-xl-3 col-md-6">
+            <div class="stat-card-ut dark">
+                <div class="stat-card-title">Total Liquidado Estimado</div>
+                <div class="stat-card-value text-warning" id="cardTotalDevengado">$ 0</div>
+                <div class="stat-card-sub">Base + Aux + Recargos Lectura</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card card-custom mb-4">
+        <div class="card-header-ut d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
+                <i class="fa-solid fa-list-check me-2 text-danger"></i>Malla Operativa (Procesada por API)
+            </h5>
+            <span class="badge bg-dark px-3 py-2">Respuesta Remota</span>
+        </div>
+        
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered text-center align-middle table-turnos mb-0">
+                    <thead>
+                        <tr>
+                            <th colspan="2">Fecha & Día</th>
+                            <th colspan="2">Segmento</th>
+                            <th colspan="2">Complemento</th>
+                            <th colspan="2">Rec. Festivo + Compensa</th>
+                            <th colspan="2">Rec. Festivo - Compensa</th>
+                            <th>Recargo Nocturno</th>
+                        </tr>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Día</th>
+                            <th>Inicio</th>
+                            <th>Fin</th>
+                            <th>Turno</th>
+                            <th>Tipo</th>
+                            <th>D (75%)</th>
+                            <th>N (110%)</th>
+                            <th>D</th>
+                            <th>N</th>
+                            <th>D/N (35%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaCuerpo">
+                        <tr>
+                            <td colspan="11" class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-image me-2 fs-5"></i>Arrastra o selecciona la imagen para procesar.
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot style="background-color: var(--ut-primary); color: white;" class="fw-bold fs-6">
+                        <tr>
+                            <td colspan="6" class="text-end text-uppercase pe-3">Totales Extraídos:</td>
+                            <td id="totFestCompD" class="text-warning">0.00</td>
+                            <td id="totFestCompN" class="text-warning">0.00</td>
+                            <td id="totFestNoCompD">0.00</td>
+                            <td id="totFestNoCompN">0.00</td>
+                            <td id="totRN" class="text-warning">0.00</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const API_CONFIG = {
+    ENDPOINT: 'https://tu-servidor.com/api/procesar-ocr', // Ajusta según la URL real de tu backend
+    API_KEY: '' 
+};
+
+const BASE_EMPLEADOS = {
+    "1002966371": "Bedoya Narvaez Camilo Andres",
+    "1005831741": "Lopez Ospina Deiby Alexis",
+    "1107088355": "Cifuentes Zuluaga Sergio Arturo",
+    "1144046778": "Yaima Chapuel Oscar Ovidio",
+    "31983375": "Osorio Molano Marisol",
+    "66703821": "Cuellar Diaz Damaris",
+    "66815514": "Luna Asprilla Claudia Cecilia",
+    "66834683": "Vallejo Ramirez Maribel Christiane",
+    "66998542": "Castano Bejarano Monica!",
+    "67037517": "Gaviria Becerra Yesica",
+    "94424432": "Sanchez Cabrera Jorge Eliecer",
+    "1098307418": "Rojas Galvis Blanca Liliana",
+    "1112044354": "Diaz Piamba Ximena Andrea",
+    "1144180764": "Franco Hurtado Maria Del Carmen",
+    "1144205962": "Muñoz Molina John Edison",
+    "29115578": "Idrobo Guevara Herlen",
+    "31324443": "Cardenas Patino Kelly Jhoanna",
+    "31713683": "Cisneros Burbano Leydi Fernanda",
+    "34674008": "Oliveros Zabala Suleida",
+    "1002634268": "Riascos Ramirez Marcelo!",
+    "6405649": "Cardona Caicedo Hector Fabio",
+    "1006018007": "Castro Bejarano Santiago",
+    "66912209": "Gonzalez Rodriguez stella"
+};
+
+let archivoCargado = null;
+let datosExtraidos = [];
+
+function validarIngreso() {
+    const rawCedula = document.getElementById("loginCedula").value.trim();
+    const sueldo = document.getElementById("loginSueldo").value.trim();
+    const cedulaLimpia = rawCedula.replace(/[^0-9]/g, '');
+
+    if (cedulaLimpia === "" || cedulaLimpia.length < 4) {
+        alert("Por favor ingrese un número de cédula válido.");
+        return;
+    }
+    if (!sueldo || parseFloat(sueldo) <= 0) {
+        alert("Por favor ingrese su sueldo actual.");
+        return;
+    }
+
+    const nombreEmpleado = BASE_EMPLEADOS[cedulaLimpia] || BASE_EMPLEADOS[rawCedula] || `Colaborador (${rawCedula})`;
+
+    document.getElementById("userWelcome").innerHTML = `<i class="fa-solid fa-user-check me-1"></i> ¡Bienvenido, ${nombreEmpleado}!`;
+    document.getElementById("userSubtext").innerText = `Cédula: ${rawCedula}`;
+    document.getElementById("inputSueldo").value = sueldo;
+    document.getElementById("loginOverlay").style.display = "none";
+
+    recalcularNomina();
+}
+
+const dropArea = document.getElementById('dropArea');
+
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => {
+    dropArea.addEventListener(e, preventDefaults, false);
+});
+
+function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+['dragenter', 'dragover'].forEach(e => {
+    dropArea.addEventListener(e, () => dropArea.classList.add('dragover'), false);
+});
+
+['dragleave', 'drop'].forEach(e => {
+    dropArea.addEventListener(e, () => dropArea.classList.remove('dragover'), false);
+});
+
+dropArea.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) previewImageFile(files[0]);
+});
+
+function previewImageFile(file) {
+    if (!file) return;
+    archivoCargado = file;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        dropArea.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+    }
+    reader.readAsDataURL(file);
+}
+
+async function procesarImagenConAPI() {
+    const fileInput = document.getElementById('imageInput');
+    const apiKeyInput = document.getElementById('apiKeyInput').value.trim();
+    const fileToProcess = archivoCargado || (fileInput.files ? fileInput.files[0] : null);
+    const status = document.getElementById('statusOCR');
+
+    const apiKey = apiKeyInput || API_CONFIG.API_KEY;
+
+    if (!apiKey) {
+        alert("Ingrese su API Key antes de enviar la solicitud.");
+        return;
+    }
+    
+    if (!fileToProcess) {
+        alert("Arrastra o selecciona primero una imagen.");
+        return;
+    }
+
+    status.className = "badge bg-warning text-dark text-wrap p-2 w-100";
+    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Enviando imagen a la API...';
+
+    const formData = new FormData();
+    formData.append('image', fileToProcess);
+
+    const headers = {
+        'Authorization': `Bearer ${apiKey}`,
+        'x-api-key': apiKey
+    };
+
+    try {
+        const response = await fetch(API_CONFIG.ENDPOINT, {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`Error en el servidor: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        status.className = "badge bg-success text-wrap p-2 w-100";
+        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Procesamiento API completado.';
+
+        if (typeof data === 'string' || data.textoBruto) {
+            parsearTextoMalla(data.textoBruto || data);
+        } else if (Array.isArray(data.items || data)) {
+            datosExtraidos = data.items || data;
+            renderizarMalla();
+        }
+
+    } catch (err) {
+        status.className = "badge bg-danger text-wrap p-2 w-100";
+        status.innerHTML = 'Error al conectar con la API.';
+        console.error("Error API:", err);
+    }
+}
+
+function parsearTextoMalla(textoBruto) {
+    datosExtraidos = [];
+    const lineas = textoBruto.split(/\r?\n/);
+    
+    const regexFecha = /(\d{1,2})[-/\s]?(ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i;
+    const regexHora = /(\d{1,2}:\d{2})/g;
+
+    lineas.forEach((linea) => {
+        const matchFecha = linea.match(regexFecha);
+        const horas = linea.match(regexHora);
+        const esDescanso = /desc|OFF|\bO\b|POS/i.test(linea);
+
+        if (matchFecha && (horas || esDescanso)) {
+            const numDia = matchFecha[1];
+            const fechaFormateada = `${numDia}-Ago`;
+
+            let inicio = "Desc.";
+            let fin = "Desc.";
+            let turno = "DESCANSO";
+            let tipo = "O";
+            let rnCalculado = 0;
+            let fNoCompD = 0;
+            let fNoCompN = 0;
+            let fCompD = 0;
+
+            if (horas && horas.length >= 2) {
+                inicio = horas[0];
+                fin = horas[1];
+                turno = "CTR";
+                
+                const hInicio = parseInt(inicio.split(':')[0]);
+                const hFin = parseInt(fin.split(':')[0]);
+
+                if (hInicio === 22 && hFin === 6) {
+                    tipo = "T3";
+                    rnCalculado = 8.0;
+                } else if (hInicio === 14 && hFin === 22) {
+                    tipo = "T2";
+                    rnCalculado = (numDia === "17" || linea.includes("17-ago")) ? 3.0 : 0;
+                } else {
+                    tipo = "T1";
+                }
+            }
+
+            if (linea.includes("Viernes-F") || linea.includes("Lunes-F")) {
+                if (numDia === "7") fNoCompD = 8.0;
+                if (numDia === "17") { fNoCompD = 5.0; fNoCompN = 3.0; }
+            }
+            if (numDia === "23") fCompD = 8.0;
+
+            datosExtraidos.push({
+                fecha: fechaFormateada,
+                dia: `Día ${numDia}`,
+                inicio: inicio,
+                fin: fin,
+                turno: turno,
+                tipo: tipo,
+                fCompD: fCompD,
+                fCompN: 0,
+                fNoCompD: fNoCompD,
+                fNoCompN: fNoCompN,
+                rn: rnCalculado
+            });
+        }
+    });
+
+    if (datosExtraidos.length === 0) {
+        alert("No se detectaron filas completas en la respuesta de la API.");
+        return;
+    }
+
+    renderizarMalla();
+}
+
+function renderizarMalla() {
+    const tbody = document.getElementById("tablaCuerpo");
+    tbody.innerHTML = "";
+
+    let totRN = 0, totFCompD = 0, totFCompN = 0, totFNoCompD = 0, totFNoCompN = 0;
+
+    datosExtraidos.forEach(item => {
+        totRN += item.rn;
+        totFCompD += item.fCompD;
+        totFCompN += item.fCompN;
+        totFNoCompD += item.fNoCompD;
+        totFNoCompN += item.fNoCompN;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td class="fw-bold">${item.fecha}</td>
+            <td><span class="badge bg-light text-dark border">${item.dia}</span></td>
+            <td>${item.inicio}</td>
+            <td>${item.fin}</td>
+            <td>${item.turno}</td>
+            <td><span class="badge bg-warning text-dark">${item.tipo}</span></td>
+            <td>${item.fCompD > 0 ? item.fCompD.toFixed(2) : ''}</td>
+            <td>${item.fCompN > 0 ? item.fCompN.toFixed(2) : ''}</td>
+            <td>${item.fNoCompD > 0 ? item.fNoCompD.toFixed(2) : ''}</td>
+            <td>${item.fNoCompN > 0 ? item.fNoCompN.toFixed(2) : ''}</td>
+            <td class="fw-bold">${item.rn > 0 ? item.rn.toFixed(2) : ''}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById("totRN").innerText = totRN.toFixed(2);
+    document.getElementById("totFestCompD").innerText = totFCompD.toFixed(2);
+    document.getElementById("totFestCompN").innerText = totFCompN.toFixed(2);
+    document.getElementById("totFestNoCompD").innerText = totFNoCompD.toFixed(2);
+    document.getElementById("totFestNoCompN").innerText = totFNoCompN.toFixed(2);
+
+    recalcularNomina(totRN, totFCompD, totFCompN, totFNoCompD, totFNoCompN);
+}
+
+function recalcularNomina(rn = 0, fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0) {
+    const sueldo = parseFloat(document.getElementById("inputSueldo").value) || 0;
+    
+    const auxTransp = (sueldo > 0 && sueldo <= 2840000) ? 162000 : 0;
+    const valHora = sueldo > 0 ? sueldo / 240 : 0;
+
+    const valRN = valHora * 0.35 * rn;
+    const valFestCompD = valHora * 0.75 * fCompD;
+    const valFestCompN = valHora * 1.10 * fCompN;
+    const valFestNoCompD = valHora * 0.75 * fNoCompD;
+    const valFestNoCompN = valHora * 1.10 * fNoCompN;
+
+    const totalRecargos = valRN + valFestCompD + valFestCompN + valFestNoCompD + valFestNoCompN;
+    const totalDevengado = sueldo > 0 ? (sueldo + auxTransp + totalRecargos) : 0;
+
+    document.getElementById("cardRN").innerText = rn.toFixed(2) + " hrs";
+    document.getElementById("cardValRN").innerText = "$ " + Math.round(valRN).toLocaleString("es-CO");
+    document.getElementById("cardFestComp").innerText = (fCompD + fCompN).toFixed(2) + " hrs";
+    document.getElementById("cardValFestComp").innerText = `${fCompD}h Diurna / ${fCompN}h Nocturna`;
+    document.getElementById("cardFestNoComp").innerText = (fNoCompD + fNoCompN).toFixed(2) + " hrs";
+    document.getElementById("cardValFestNoComp").innerText = `${fNoCompD}h Diurna / ${fNoCompN}h Nocturna`;
+    
+    document.getElementById("cardTotalDevengado").innerText = "$ " + Math.round(totalDevengado).toLocaleString("es-CO");
+}
+
+function limpiarInterfaz() {
+    datosExtraidos = [];
+    archivoCargado = null;
+    document.getElementById("imageInput").value = "";
+    document.getElementById("dropArea").innerHTML = `
+        <span class="text-muted" style="font-size: 0.85rem;" id="dropAreaText">
+            <i class="fa-solid fa-cloud-arrow-up d-block fs-4 text-primary mb-1"></i>
+            Arrastra la imagen aquí o <strong>haz clic para buscar</strong>
+        </span>
+    `;
+    document.getElementById("tablaCuerpo").innerHTML = `
+        <tr>
+            <td colspan="11" class="text-center py-4 text-muted">
+                <i class="fa-solid fa-image me-2 fs-5"></i>Campos limpios. Arrastra una nueva imagen.
+            </td>
+        </tr>
+    `;
+    document.getElementById("totFestCompD").innerText = "0.00";
+    document.getElementById("totFestCompN").innerText = "0.00";
+    document.getElementById("totFestNoCompD").innerText = "0.00";
+    document.getElementById("totFestNoCompN").innerText = "0.00";
+    document.getElementById("totRN").innerText = "0.00";
+    
+    recalcularNomina();
+    
+    document.getElementById('statusOCR').className = "badge bg-secondary text-wrap p-2 w-100";
+    document.getElementById('statusOCR').innerHTML = 'Estado: Esperando imagen...';
+}
+</script>
+</body>
+</html>
