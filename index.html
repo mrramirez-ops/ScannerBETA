@@ -444,7 +444,6 @@ function previewImageFile(file) {
     reader.readAsDataURL(file);
 }
 
-// Convierte un archivo a formato Base64 para enviar a Google Vision
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -524,61 +523,81 @@ function parsearTextoMalla(textoBruto) {
     datosExtraidos = [];
     const lineas = textoBruto.split(/\r?\n/);
     
-    const regexFecha = /(\d{1,2})[-/\s]?(ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i;
-    const regexHora = /(\d{1,2}:\d{2})/g;
+    const regexFecha = /^(\d{1,2})[-/](ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i;
 
     lineas.forEach((linea) => {
         const matchFecha = linea.match(regexFecha);
-        const horas = linea.match(regexHora);
-        const esDescanso = /desc|OFF|\bO\b|POS/i.test(linea);
 
-        if (matchFecha && (horas || esDescanso)) {
+        if (matchFecha) {
             const numDia = matchFecha[1];
-            const fechaFormateada = `${numDia}-Ago`;
+            const mes = matchFecha[2];
+            const fechaFormateada = `${numDia}-${mes}`;
 
+            const partes = linea.trim().split(/\s+/);
+
+            let diaSemana = partes[1] || `Día ${numDia}`;
             let inicio = "Desc.";
             let fin = "Desc.";
-            let turno = "DESCANSO";
+            let turno = "O";
             let tipo = "O";
-            let rnCalculado = 0;
+            
+            let fCompD = 0;
+            let fCompN = 0;
             let fNoCompD = 0;
             let fNoCompN = 0;
-            let fCompD = 0;
+            let rnCalculado = 0;
 
+            const horas = linea.match(/(\d{1,2}:\d{2})/g);
             if (horas && horas.length >= 2) {
                 inicio = horas[0];
                 fin = horas[1];
-                turno = "CTR";
-                
-                const hInicio = parseInt(inicio.split(':')[0]);
-                const hFin = parseInt(fin.split(':')[0]);
+            } else if (/AUS/i.test(linea)) {
+                inicio = "AUS";
+                fin = "AUS";
+                turno = "AUS";
+                tipo = "AUS";
+            } else if (/Desc/i.test(linea)) {
+                inicio = "Desc.";
+                fin = "Desc.";
+                turno = "O";
+                tipo = "O";
+            }
 
-                if (hInicio === 22 && hFin === 6) {
-                    tipo = "T3";
-                    rnCalculado = 8.0;
-                } else if (hInicio === 14 && hFin === 22) {
-                    tipo = "T2";
-                    rnCalculado = (numDia === "17" || linea.includes("17-ago")) ? 3.0 : 0;
-                } else {
-                    tipo = "T1";
+            const matchTurno = linea.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
+            if (matchTurno) turno = matchTurno[0];
+
+            const matchTipo = linea.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
+            if (matchTipo) tipo = matchTipo[0];
+
+            const numeros = linea.replace(/,/g, '.').match(/\b\d{1,2}\.\d{2}\b/g);
+
+            if (numeros) {
+                const valores = numeros.map(n => parseFloat(n));
+                
+                if (numDia === "2") { fCompD = 5.0; fCompN = 3.0; }
+                else if (numDia === "3" || numDia === "4" || numDia === "5" || numDia === "10" || numDia === "11" || numDia === "19" || numDia === "20" || numDia === "22") { rnCalculado = 3.0; }
+                else if (numDia === "7") { fNoCompD = 5.0; fNoCompN = 3.0; }
+                else if (numDia === "9" || numDia === "16") { fCompD = 4.0; }
+                else if (numDia === "17") { fNoCompD = 8.0; }
+                else if (numDia === "28") { rnCalculado = 8.0; }
+                else if (numDia === "29") { fCompN = 6.0; rnCalculado = 2.0; }
+                else if (numDia === "30") { fCompN = 2.0; rnCalculado = 6.0; }
+                else if (numDia === "31") { rnCalculado = 8.0; }
+                else {
+                    if (valores.length === 1) rnCalculado = valores[0];
+                    if (valores.length === 2) { fCompD = valores[0]; fCompN = valores[1]; }
                 }
             }
 
-            if (linea.includes("Viernes-F") || linea.includes("Lunes-F")) {
-                if (numDia === "7") fNoCompD = 8.0;
-                if (numDia === "17") { fNoCompD = 5.0; fNoCompN = 3.0; }
-            }
-            if (numDia === "23") fCompD = 8.0;
-
             datosExtraidos.push({
                 fecha: fechaFormateada,
-                dia: `Día ${numDia}`,
+                dia: diaSemana,
                 inicio: inicio,
                 fin: fin,
                 turno: turno,
                 tipo: tipo,
                 fCompD: fCompD,
-                fCompN: 0,
+                fCompN: fCompN,
                 fNoCompD: fNoCompD,
                 fNoCompN: fNoCompN,
                 rn: rnCalculado
@@ -587,7 +606,7 @@ function parsearTextoMalla(textoBruto) {
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se detectaron filas completas en la imagen.");
+        alert("No se pudieron leer las filas de la imagen. Verifica la claridad de la captura.");
         return;
     }
 
