@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Alta Precisión por Mapeo de Subcolumnas</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Alta Precisión por Anclaje de Encabezados Principales</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -306,7 +306,7 @@
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
                 <i class="fa-solid fa-list-check me-2 text-danger"></i>Lectura de Filas Detectadas
             </h5>
-            <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-bullseye me-1"></i> Anclaje Preciso Subcolumnas</span>
+            <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-bullseye me-1"></i> Anclaje Absoluto Encabezados</span>
         </div>
         
         <div class="card-body p-0">
@@ -520,27 +520,39 @@ async function procesarImagenConAPI() {
 function procesarConMapeoAnclado(annotations) {
     const palabras = annotations.slice(1);
 
-    // 1. Mapeo estricto de las 5 columnas de recargos usando la subfila de encabezados (D, N, D, N, D/N)
-    let colD1 = null, colN1 = null, colD2 = null, colN2 = null, colDN = null;
+    // Búsqueda de coordenadas X de los TÍTULOS PRINCIPALES
+    let xFestComp = null;   // Rec. festivo + compensa.
+    let xFestNoComp = null; // Rec. festivo - compensa.
+    let xRecNocturno = null; // Recargo nocturno
 
-    // Filtramos candidatos a sub-encabezados situados en la parte superior de la imagen (Y < 250px)
-    const encabezadosSub = palabras.filter(p => {
+    palabras.forEach(p => {
+        const txt = p.description.toLowerCase();
+        const x = p.boundingPoly.vertices[0].x || 0;
         const y = p.boundingPoly.vertices[0].y || 0;
-        const texto = p.description.trim();
-        return y > 20 && y < 250 && /^(D|N|D\/N)$/i.test(texto);
-    }).sort((a, b) => (a.boundingPoly.vertices[0].x || 0) - (b.boundingPoly.vertices[0].x || 0));
 
-    // Tomamos los últimos 5 sub-encabezados hacia la derecha (son exactamente las 5 columnas finales)
-    if (encabezadosSub.length >= 5) {
-        const ultimos5 = encabezadosSub.slice(-5);
-        colD1 = ultimos5[0].boundingPoly.vertices[0].x; // Rec. Festivo + Compensa (D)
-        colN1 = ultimos5[1].boundingPoly.vertices[0].x; // Rec. Festivo + Compensa (N)
-        colD2 = ultimos5[2].boundingPoly.vertices[0].x; // Rec. Festivo - Compensa (D)
-        colN2 = ultimos5[3].boundingPoly.vertices[0].x; // Rec. Festivo - Compensa (N)
-        colDN = ultimos5[4].boundingPoly.vertices[0].x; // Recargo Nocturno (D/N)
-    }
+        // Solo buscar en la cabecera superior
+        if (y < 200) {
+            if (txt.includes("compensa") && (txt.includes("+") || txt.includes("festivo"))) {
+                if (!xFestComp || x < xFestComp) xFestComp = x;
+            }
+            if (txt.includes("compensa") && txt.includes("-")) {
+                if (!xFestNoComp || x < xFestNoComp) xFestNoComp = x;
+            }
+            if (txt.includes("nocturno") || (txt.includes("recargo") && x > 700)) {
+                if (!xRecNocturno || x < xRecNocturno) xRecNocturno = x;
+            }
+        }
+    });
 
-    // 2. Agrupar palabras por filas horizontales (Tolerancia Y +/- 10px)
+    // Ancho total de la imagen para referencias proporcionales
+    const maxX = Math.max(...palabras.map(p => p.boundingPoly.vertices[0].x || 0));
+
+    // Si falló el anclaje textual directo, usamos porcentajes aproximados basados en la estructura fija del Excel R&T
+    if (!xFestComp) xFestComp = maxX * 0.70;
+    if (!xFestNoComp) xFestNoComp = maxX * 0.81;
+    if (!xRecNocturno) xRecNocturno = maxX * 0.92;
+
+    // 2. Agrupar palabras por renglones (Líneas horizontales Y +/- 10px)
     const filasMap = {};
     palabras.forEach(p => {
         const y = p.boundingPoly.vertices[0].y || 0;
@@ -561,15 +573,21 @@ function procesarConMapeoAnclado(annotations) {
         const palabrasFila = filasMap[yKey].sort((a, b) => a.x - b.x);
         const textoCompletoFila = palabrasFila.map(p => p.texto).join(" ");
 
-        // Ignorar encabezados de tabla y filas sumarias finales
-        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales|Observaci|Fecha/i.test(textoCompletoFila)) {
+        // Omitir renglones de títulos principales o de pie de página (totales)
+        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales|Observaci|Fecha|nocturno/i.test(textoCompletoFila)) {
             return;
         }
 
-        // Búsqueda flexible de Fecha (Ej: 1-ago, 01-ago, 1-AGO, 1/08)
-        const matchFecha = textoCompletoFila.match(/\b(\d{1,2})[-/\s]?(ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)\b/i);
+        // Captura de Fecha: Cualquier palabra que esté en el sector inicial (X < 15% del ancho)
+        let fecha = "--";
+        const palFecha = palabrasFila.find(p => p.x < maxX * 0.12 && /(\d{1,2}|ago|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i.test(p.texto));
+        if (palFecha) {
+            // Unir posibles partes de la fecha (ej: "1" y "-ago")
+            const partesFecha = palabrasFila.filter(p => p.x < maxX * 0.12).map(p => p.texto).join("");
+            const matchF = partesFecha.match(/\d{1,2}[-/\s]?[a-zA-Z]{3}/i);
+            fecha = matchF ? matchF[0] : partesFecha;
+        }
 
-        let fecha = matchFecha ? matchFecha[0] : "";
         let diaSemana = "--";
         let inicio = "--";
         let fin = "--";
@@ -591,44 +609,45 @@ function procesarConMapeoAnclado(annotations) {
         const matchTipo = textoCompletoFila.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
         if (matchTipo) tipo = matchTipo[0];
 
-        // 3. Asignación numérica por Distancia Horizontal de cercanía (Eje X)
+        // 3. Asignación Estricta según la Franja X
         let fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0, rnCalculado = 0;
 
         palabrasFila.forEach(p => {
             const valLimpio = p.texto.replace(',', '.');
             const val = parseFloat(valLimpio);
 
-            // Validar que sea un número de horas válido (de 0.1 a 24) y no una hora del tipo 14:00
+            // Validar que sea un número de horas válido
             if (!isNaN(val) && val > 0 && val <= 24 && !p.texto.includes(":")) {
-                
-                if (colD1 && colN1 && colD2 && colN2 && colDN) {
-                    const x = p.x;
-                    
-                    // Ordenar distancias a las 5 columnas
-                    const distancias = [
-                        { col: 'fCompD', d: Math.abs(x - colD1) },
-                        { col: 'fCompN', d: Math.abs(x - colN1) },
-                        { col: 'fNoCompD', d: Math.abs(x - colD2) },
-                        { col: 'fNoCompN', d: Math.abs(x - colN2) },
-                        { col: 'rn', d: Math.abs(x - colDN) }
-                    ].sort((a, b) => a.d - b.d);
+                const x = p.x;
 
-                    // Solo se asigna si el número cae cerca del área de recargos (distancia < 90px)
-                    if (distancias[0].d < 90) {
-                        if (distancias[0].col === 'fCompD') fCompD = val;
-                        if (distancias[0].col === 'fCompN') fCompN = val;
-                        if (distancias[0].col === 'fNoCompD') fNoCompD = val;
-                        if (distancias[0].col === 'fNoCompN') fNoCompN = val;
-                        if (distancias[0].col === 'rn') rnCalculado = val;
+                // Solo procesar si está a la derecha del área de Turno/Tipo
+                if (x >= xFestComp - 40) {
+                    
+                    // Columna: Rec. Festivo + Compensa
+                    if (x >= xFestComp - 40 && x < xFestNoComp - 20) {
+                        // Sub-columna D o N por punto medio
+                        const centro = (xFestComp + xFestNoComp) / 2;
+                        if (x < centro) fCompD = val;
+                        else fCompN = val;
+                    }
+                    // Columna: Rec. Festivo - Compensa
+                    else if (x >= xFestNoComp - 20 && x < xRecNocturno - 20) {
+                        const centro = (xFestNoComp + xRecNocturno) / 2;
+                        if (x < centro) fNoCompD = val;
+                        else fNoCompN = val;
+                    }
+                    // Columna: Recargo Nocturno
+                    else if (x >= xRecNocturno - 20) {
+                        rnCalculado = val;
                     }
                 }
             }
         });
 
-        // Registrar en el vector solo si cuenta con información válida
-        if (fecha || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
+        // Registrar la fila si tiene al menos una hora o un turno asociado
+        if (fecha !== "--" || diaSemana !== "--" || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
             datosExtraidos.push({
-                fecha: fecha || `--`,
+                fecha: fecha,
                 dia: diaSemana,
                 inicio: inicio,
                 fin: fin,
