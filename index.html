@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UT R&T - Extractor Directo de Horas y Recargos</title>
+    <title>UT R&T - Extractor de Malla Operativa</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador Directo de Números y Recargos</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Malla por Coordenadas Exactas</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -306,7 +306,7 @@
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
                 <i class="fa-solid fa-list-check me-2 text-danger"></i>Lectura de Filas Detectadas
             </h5>
-            <span class="badge bg-dark px-3 py-2">Filtro Numérico Flexible</span>
+            <span class="badge bg-dark px-3 py-2">Mapeo por Coordenada Horizontal</span>
         </div>
         
         <div class="card-body p-0">
@@ -519,32 +519,44 @@ async function procesarImagenConAPI() {
 
 function parsearAnotacionesFlexible(annotations) {
     const palabras = annotations.slice(1);
-    const filasAgrupadas = {};
+    
+    // 1. Obtener los límites del lienzo para calcular columnas por porcentaje
+    let minX = Infinity, maxX = -Infinity;
+    palabras.forEach(p => {
+        const x = p.boundingPoly.vertices[0].x || 0;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+    });
+    const anchoTotal = maxX - minX;
 
-    // Agrupar texto por coordenadas verticales (Y)
+    // 2. Agrupar palabras por filas (Eje Y)
+    const filasAgrupadas = {};
     palabras.forEach(p => {
         const y = p.boundingPoly.vertices[0].y || 0;
         const x = p.boundingPoly.vertices[0].x || 0;
         
-        let claveFila = Object.keys(filasAgrupadas).find(k => Math.abs(k - y) < 12);
+        let claveFila = Object.keys(filasAgrupadas).find(k => Math.abs(k - y) < 10);
         if (!claveFila) {
             claveFila = y;
             filasAgrupadas[claveFila] = [];
         }
-        filasAgrupadas[claveFila].push({ x: x, texto: p.description });
+        filasAgrupadas[claveFila].push({ 
+            x: x, 
+            pctX: (x - minX) / anchoTotal, // Posición horizontal relativa (0% a 100%)
+            texto: p.description 
+        });
     });
 
     datosExtraidos = [];
     let filaIndex = 1;
-
     const llavesOrdenadas = Object.keys(filasAgrupadas).sort((a, b) => parseFloat(a) - parseFloat(b));
 
     llavesOrdenadas.forEach(yKey => {
         const palabrasFila = filasAgrupadas[yKey].sort((a, b) => a.x - b.x);
         const textoLinea = palabrasFila.map(p => p.texto).join(" ");
 
-        // Omitir encabezados no numéricos explícitos
-        if (/Segmento|Complemento|Recargo|ordinary|Tiempo/i.test(textoLinea) && !/\d/.test(textoLinea)) {
+        // Omitir encabezados o la fila de totales del final
+        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales/i.test(textoLinea) && !textoLinea.includes("ago")) {
             return;
         }
 
@@ -555,13 +567,10 @@ function parsearAnotacionesFlexible(annotations) {
         let turno = "--";
         let tipo = "--";
 
-        // Intentar extraer metadatos si existen
+        // Extraer texto base
         const matchFecha = textoLinea.match(/(\d{1,2})[-/](ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i);
-        if (matchFecha) {
-            fecha = `${matchFecha[1]}-${matchFecha[2]}`;
-        } else {
-            fecha = `Item ${filaIndex}`;
-        }
+        if (matchFecha) fecha = matchFecha[0];
+        else fecha = `Item ${filaIndex}`;
 
         const matchDia = textoLinea.match(/\b(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo)\b/i);
         if (matchDia) diaSemana = matchDia[0];
@@ -578,33 +587,28 @@ function parsearAnotacionesFlexible(annotations) {
         const matchTipo = textoLinea.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
         if (matchTipo) tipo = matchTipo[0];
 
-        // Extracción puramente numérica de recargos (ej. 5.00, 3.00, 8.00, etc.)
+        // 3. Filtrar números ÚNICAMENTE si están en la mitad derecha de la tabla (> 65% del ancho)
         let fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0, rnCalculado = 0;
-        
-        // Limpiar comas por puntos
-        const numerosLimpio = textoLinea.replace(/,/g, '.');
-        const numerosEncontrados = numerosLimpio.match(/\b\d{1,2}(\.\d{1,2})?\b/g);
 
-        if (numerosEncontrados) {
-            const valoresFloat = numerosEncontrados
-                .map(n => parseFloat(n))
-                .filter(val => val > 0 && val <= 24);
+        palabrasFila.forEach(p => {
+            // Si la palabra está en la zona de recargos (lado derecho de la tabla)
+            if (p.pctX > 0.65) {
+                const numLimpio = p.texto.replace(',', '.');
+                const val = parseFloat(numLimpio);
 
-            // Asignación flexible por cantidad de números detectados en la fila
-            if (valoresFloat.length === 1) {
-                rnCalculado = valoresFloat[0];
-            } else if (valoresFloat.length === 2) {
-                fCompD = valoresFloat[0];
-                fCompN = valoresFloat[1];
-            } else if (valoresFloat.length >= 3) {
-                fCompD = valoresFloat[0];
-                fCompN = valoresFloat[1];
-                rnCalculado = valoresFloat[valoresFloat.length - 1];
+                if (!isNaN(val) && val > 0 && val <= 24) {
+                    // Mapeo según posición horizontal (% X)
+                    if (p.pctX >= 0.65 && p.pctX < 0.73) fCompD = val;
+                    else if (p.pctX >= 0.73 && p.pctX < 0.79) fCompN = val;
+                    else if (p.pctX >= 0.79 && p.pctX < 0.85) fNoCompD = val;
+                    else if (p.pctX >= 0.85 && p.pctX < 0.91) fNoCompN = val;
+                    else if (p.pctX >= 0.91) rnCalculado = val;
+                }
             }
-        }
+        });
 
-        // Si la fila tiene al menos algún dato útil o número, la agregamos
-        if (fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0 || matchFecha || matchTurno) {
+        // Guardar la fila si contiene algún dato válido
+        if (matchFecha || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
             datosExtraidos.push({
                 fecha: fecha,
                 dia: diaSemana,
@@ -623,7 +627,7 @@ function parsearAnotacionesFlexible(annotations) {
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se encontraron valores numéricos ni filas en la imagen.");
+        alert("No se encontraron filas con recargos válidos.");
         return;
     }
 
