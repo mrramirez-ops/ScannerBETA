@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Alta Precisión por Mapeo de Columnas</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Alta Precisión por Mapeo de Subcolumnas</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -306,7 +306,7 @@
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
                 <i class="fa-solid fa-list-check me-2 text-danger"></i>Lectura de Filas Detectadas
             </h5>
-            <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-bullseye me-1"></i> Anclaje Automático por Encabezados</span>
+            <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-bullseye me-1"></i> Anclaje Preciso Subcolumnas</span>
         </div>
         
         <div class="card-body p-0">
@@ -520,27 +520,27 @@ async function procesarImagenConAPI() {
 function procesarConMapeoAnclado(annotations) {
     const palabras = annotations.slice(1);
 
-    // 1. Detección del punto de anclaje de las columnas de la derecha
-    // Buscamos las palabras clave de los encabezados para calcular sus límites X reales
-    let xMinRecargos = Infinity;
-    let xMaxImagen = -Infinity;
+    // 1. Mapeo estricto de las 5 columnas de recargos usando la subfila de encabezados (D, N, D, N, D/N)
+    let colD1 = null, colN1 = null, colD2 = null, colN2 = null, colDN = null;
 
-    palabras.forEach(p => {
-        const x = p.boundingPoly.vertices[0].x || 0;
-        if (x > xMaxImagen) xMaxImagen = x;
-        
-        // Detectar dónde comienzan los encabezados de "Extra" o "Rec. festivo" o "Recargo"
-        if (/Extra|festivo|nocturno|compensa/i.test(p.description)) {
-            if (x < xMinRecargos) xMinRecargos = x;
-        }
-    });
+    // Filtramos candidatos a sub-encabezados situados en la parte superior de la imagen (Y < 250px)
+    const encabezadosSub = palabras.filter(p => {
+        const y = p.boundingPoly.vertices[0].y || 0;
+        const texto = p.description.trim();
+        return y > 20 && y < 250 && /^(D|N|D\/N)$/i.test(texto);
+    }).sort((a, b) => (a.boundingPoly.vertices[0].x || 0) - (b.boundingPoly.vertices[0].x || 0));
 
-    // Si no encuentra los encabezados explícitos, toma como salvaguarda el 62% del ancho total de la imagen
-    if (xMinRecargos === Infinity) {
-        xMinRecargos = xMaxImagen * 0.62;
+    // Tomamos los últimos 5 sub-encabezados hacia la derecha (son exactamente las 5 columnas finales)
+    if (encabezadosSub.length >= 5) {
+        const ultimos5 = encabezadosSub.slice(-5);
+        colD1 = ultimos5[0].boundingPoly.vertices[0].x; // Rec. Festivo + Compensa (D)
+        colN1 = ultimos5[1].boundingPoly.vertices[0].x; // Rec. Festivo + Compensa (N)
+        colD2 = ultimos5[2].boundingPoly.vertices[0].x; // Rec. Festivo - Compensa (D)
+        colN2 = ultimos5[3].boundingPoly.vertices[0].x; // Rec. Festivo - Compensa (N)
+        colDN = ultimos5[4].boundingPoly.vertices[0].x; // Recargo Nocturno (D/N)
     }
 
-    // 2. Agrupar palabras estrictamente por renglones (Línea Y)
+    // 2. Agrupar palabras por filas horizontales (Tolerancia Y +/- 10px)
     const filasMap = {};
     palabras.forEach(p => {
         const y = p.boundingPoly.vertices[0].y || 0;
@@ -561,12 +561,12 @@ function procesarConMapeoAnclado(annotations) {
         const palabrasFila = filasMap[yKey].sort((a, b) => a.x - b.x);
         const textoCompletoFila = palabrasFila.map(p => p.texto).join(" ");
 
-        // Omitir líneas de encabezado o de totales de la hoja
-        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales|Observaci/i.test(textoCompletoFila)) {
+        // Ignorar encabezados de tabla y filas sumarias finales
+        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales|Observaci|Fecha/i.test(textoCompletoFila)) {
             return;
         }
 
-        // Búsqueda estricta de patrón de Fecha (Ej: 1-ago, 02-ago, 31-ago)
+        // Búsqueda flexible de Fecha (Ej: 1-ago, 01-ago, 1-AGO, 1/08)
         const matchFecha = textoCompletoFila.match(/\b(\d{1,2})[-/\s]?(ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)\b/i);
 
         let fecha = matchFecha ? matchFecha[0] : "";
@@ -585,45 +585,47 @@ function procesarConMapeoAnclado(annotations) {
             fin = horas[1];
         }
 
-        const matchTurno = textoCompletoFila.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
+        const matchTurno = textoCompletoFila.match(/(CTR-\d\s?[A-Z0-9]+|TRL\s?[A-Z0-9\s\(\)-]+)/i);
         if (matchTurno) turno = matchTurno[0];
 
         const matchTipo = textoCompletoFila.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
         if (matchTipo) tipo = matchTipo[0];
 
-        // 3. Extracción de Números de Recargo (SOLO si están a la derecha del Anclaje xMinRecargos)
+        // 3. Asignación numérica por Distancia Horizontal de cercanía (Eje X)
         let fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0, rnCalculado = 0;
 
-        // Ancho útil de la zona de recargos
-        const anchoZonaRecargos = xMaxImagen - xMinRecargos;
-        const colWidth = anchoZonaRecargos / 5; // Dividido exactamente en las 5 columnas finales
-
         palabrasFila.forEach(p => {
-            // SOLO evaluamos palabras situadas dentro del sector de recargos
-            if (p.x >= xMinRecargos - 10) {
-                const valLimpio = p.texto.replace(',', '.');
-                const val = parseFloat(valLimpio);
+            const valLimpio = p.texto.replace(',', '.');
+            const val = parseFloat(valLimpio);
 
-                // Evita que días de la fecha o códigos entren como recargos
-                if (!isNaN(val) && val > 0 && val <= 24) {
-                    const offsetRelativo = p.x - xMinRecargos;
+            // Validar que sea un número de horas válido (de 0.1 a 24) y no una hora del tipo 14:00
+            if (!isNaN(val) && val > 0 && val <= 24 && !p.texto.includes(":")) {
+                
+                if (colD1 && colN1 && colD2 && colN2 && colDN) {
+                    const x = p.x;
+                    
+                    // Ordenar distancias a las 5 columnas
+                    const distancias = [
+                        { col: 'fCompD', d: Math.abs(x - colD1) },
+                        { col: 'fCompN', d: Math.abs(x - colN1) },
+                        { col: 'fNoCompD', d: Math.abs(x - colD2) },
+                        { col: 'fNoCompN', d: Math.abs(x - colN2) },
+                        { col: 'rn', d: Math.abs(x - colDN) }
+                    ].sort((a, b) => a.d - b.d);
 
-                    if (offsetRelativo < colWidth) {
-                        fCompD = val;
-                    } else if (offsetRelativo < colWidth * 2) {
-                        fCompN = val;
-                    } else if (offsetRelativo < colWidth * 3) {
-                        fNoCompD = val;
-                    } else if (offsetRelativo < colWidth * 4) {
-                        fNoCompN = val;
-                    } else {
-                        rnCalculado = val;
+                    // Solo se asigna si el número cae cerca del área de recargos (distancia < 90px)
+                    if (distancias[0].d < 90) {
+                        if (distancias[0].col === 'fCompD') fCompD = val;
+                        if (distancias[0].col === 'fCompN') fCompN = val;
+                        if (distancias[0].col === 'fNoCompD') fNoCompD = val;
+                        if (distancias[0].col === 'fNoCompN') fNoCompN = val;
+                        if (distancias[0].col === 'rn') rnCalculado = val;
                     }
                 }
             }
         });
 
-        // Solo agregar al listado final si se detectó una fecha válida o si hay recargos registrados
+        // Registrar en el vector solo si cuenta con información válida
         if (fecha || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
             datosExtraidos.push({
                 fecha: fecha || `--`,
@@ -642,7 +644,7 @@ function procesarConMapeoAnclado(annotations) {
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se lograron mapear filas con fechas o recargos válidos.");
+        alert("No se lograron mapear filas con datos válidos.");
         return;
     }
 
