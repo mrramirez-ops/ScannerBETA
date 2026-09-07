@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesamiento Directo con Google Vision API</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Motor Optimizado: DOCUMENT_TEXT_DETECTION</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -239,7 +239,7 @@
                 <input type="file" id="imageInput" class="form-control form-control-ut mb-2" accept="image/*" onchange="previewImageFile(this.files[0])">
                 
                 <div class="d-flex gap-2 mb-2">
-                    <button class="btn btn-ut-primary w-100" onclick="procesarImagenConAPI()"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Procesar con Google Vision</button>
+                    <button class="btn btn-ut-primary w-100" onclick="procesarImagenConAPI()"><i class="fa-solid fa-microchip me-1"></i> Escanear Documento Denso</button>
                 </div>
 
                 <button class="btn btn-outline-danger w-100 btn-sm" onclick="limpiarInterfaz()"><i class="fa-solid fa-eraser me-1"></i> Limpiar Campos Malla</button>
@@ -304,9 +304,9 @@
     <div class="card card-custom mb-4">
         <div class="card-header-ut d-flex justify-content-between align-items-center">
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
-                <i class="fa-solid fa-list-check me-2 text-danger"></i>Malla Operativa (Procesada por Google OCR)
+                <i class="fa-solid fa-list-check me-2 text-danger"></i>Malla Operativa (Google Dense OCR)
             </h5>
-            <span class="badge bg-dark px-3 py-2">Respuesta Directa</span>
+            <span class="badge bg-dark px-3 py-2">Procesamiento por Coordenadas</span>
         </div>
         
         <div class="card-body p-0">
@@ -473,17 +473,17 @@ async function procesarImagenConAPI() {
     }
 
     status.className = "badge bg-warning text-dark text-wrap p-2 w-100";
-    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Enviando a Google Cloud Vision...';
+    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Analizando documento denso en Google Cloud...';
 
     try {
         const base64Image = await fileToBase64(fileToProcess);
-        
         const googleEndpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
 
+        // Uso de DOCUMENT_TEXT_DETECTION para obtener lectura de alta densidad en tablas
         const requestBody = {
             requests: [{
                 image: { content: base64Image },
-                features: [{ type: "TEXT_DETECTION" }]
+                features: [{ type: "DOCUMENT_TEXT_DETECTION" }]
             }]
         };
 
@@ -501,91 +501,99 @@ async function procesarImagenConAPI() {
         const data = await response.json();
 
         status.className = "badge bg-success text-wrap p-2 w-100";
-        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Procesamiento completado.';
+        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Análisis estructural completado.';
 
-        const textAnnotations = data.responses[0]?.textAnnotations;
-        if (textAnnotations && textAnnotations.length > 0) {
-            const textoBruto = textAnnotations[0].description;
-            parsearTextoMalla(textoBruto);
+        const annotations = data.responses[0]?.textAnnotations;
+        if (annotations && annotations.length > 1) {
+            parsearAnotacionesEspeciales(annotations);
         } else {
-            alert("Google Vision no detectó texto en la imagen.");
+            alert("Google Vision no detectó texto utilizable en la imagen.");
         }
 
     } catch (err) {
         status.className = "badge bg-danger text-wrap p-2 w-100";
-        status.innerHTML = 'Error al procesar con Google Vision.';
+        status.innerHTML = 'Error en motor Google Vision.';
         alert("Error: " + err.message);
         console.error("Error API Google:", err);
     }
 }
 
-function parsearTextoMalla(textoBruto) {
+function parsearAnotacionesEspeciales(annotations) {
+    // Excluir la anotación 0 (que contiene todo el texto unido)
+    const palabras = annotations.slice(1);
+    const filasAgrupadas = {};
+
+    palabras.forEach(p => {
+        const y = p.boundingPoly.vertices[0].y || 0;
+        const x = p.boundingPoly.vertices[0].x || 0;
+        
+        // Agrupamiento dinámico con tolerancia de 10px para alineación perfecta de renglones
+        let claveFila = Object.keys(filasAgrupadas).find(k => Math.abs(k - y) < 10);
+        if (!claveFila) {
+            claveFila = y;
+            filasAgrupadas[claveFila] = [];
+        }
+        filasAgrupadas[claveFila].push({ x: x, texto: p.description });
+    });
+
     datosExtraidos = [];
-    const lineas = textoBruto.split(/\r?\n/);
-    
     const regexFecha = /^(\d{1,2})[-/](ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i;
 
-    lineas.forEach((linea) => {
-        const matchFecha = linea.match(regexFecha);
+    const llavesOrdenadas = Object.keys(filasAgrupadas).sort((a, b) => parseFloat(a) - parseFloat(b));
+
+    llavesOrdenadas.forEach(yKey => {
+        // Orden horizontal de izquierda a derecha por coordenada X
+        const palabrasFila = filasAgrupadas[yKey].sort((a, b) => a.x - b.x);
+        const textoLinea = palabrasFila.map(p => p.texto).join(" ");
+
+        const matchFecha = textoLinea.match(regexFecha);
 
         if (matchFecha) {
             const numDia = matchFecha[1];
             const mes = matchFecha[2];
             const fechaFormateada = `${numDia}-${mes}`;
 
-            const partes = linea.trim().split(/\s+/);
-
-            let diaSemana = partes[1] || `Día ${numDia}`;
+            let diaSemana = `Día ${numDia}`;
             let inicio = "Desc.";
             let fin = "Desc.";
             let turno = "O";
             let tipo = "O";
-            
-            let fCompD = 0;
-            let fCompN = 0;
-            let fNoCompD = 0;
-            let fNoCompN = 0;
-            let rnCalculado = 0;
+            let fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0, rnCalculado = 0;
 
-            const horas = linea.match(/(\d{1,2}:\d{2})/g);
+            const horas = textoLinea.match(/(\d{1,2}:\d{2})/g);
             if (horas && horas.length >= 2) {
                 inicio = horas[0];
                 fin = horas[1];
-            } else if (/AUS/i.test(linea)) {
-                inicio = "AUS";
-                fin = "AUS";
-                turno = "AUS";
-                tipo = "AUS";
-            } else if (/Desc/i.test(linea)) {
-                inicio = "Desc.";
-                fin = "Desc.";
-                turno = "O";
-                tipo = "O";
+            } else if (/AUS/i.test(textoLinea)) {
+                inicio = "AUS"; fin = "AUS"; turno = "AUS"; tipo = "AUS";
             }
 
-            const matchTurno = linea.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
+            const matchDia = textoLinea.match(/\b(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo)\b/i);
+            if (matchDia) diaSemana = matchDia[0];
+
+            const matchTurno = textoLinea.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
             if (matchTurno) turno = matchTurno[0];
 
-            const matchTipo = linea.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
+            const matchTipo = textoLinea.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
             if (matchTipo) tipo = matchTipo[0];
 
-            const numeros = linea.replace(/,/g, '.').match(/\b\d{1,2}\.\d{2}\b/g);
+            // Normalización de números para corregir sustitución por comas
+            const numerosEncontrados = textoLinea.replace(/,/g, '.').match(/\b\d{1,2}(\.\d{1,2})?\b/g);
 
-            if (numeros) {
-                const valores = numeros.map(n => parseFloat(n));
-                
-                if (numDia === "2") { fCompD = 5.0; fCompN = 3.0; }
-                else if (numDia === "3" || numDia === "4" || numDia === "5" || numDia === "10" || numDia === "11" || numDia === "19" || numDia === "20" || numDia === "22") { rnCalculado = 3.0; }
-                else if (numDia === "7") { fNoCompD = 5.0; fNoCompN = 3.0; }
-                else if (numDia === "9" || numDia === "16") { fCompD = 4.0; }
-                else if (numDia === "17") { fNoCompD = 8.0; }
-                else if (numDia === "28") { rnCalculado = 8.0; }
-                else if (numDia === "29") { fCompN = 6.0; rnCalculado = 2.0; }
-                else if (numDia === "30") { fCompN = 2.0; rnCalculado = 6.0; }
-                else if (numDia === "31") { rnCalculado = 8.0; }
-                else {
-                    if (valores.length === 1) rnCalculado = valores[0];
-                    if (valores.length === 2) { fCompD = valores[0]; fCompN = valores[1]; }
+            if (numerosEncontrados) {
+                const valoresFloat = numerosEncontrados
+                    .map(n => parseFloat(n))
+                    .filter(val => val !== parseFloat(numDia) && val > 0 && val <= 24);
+
+                if (valoresFloat.length === 1) {
+                    rnCalculado = valoresFloat[0];
+                } else if (valoresFloat.length === 2) {
+                    fCompD = valoresFloat[0];
+                    fCompN = valoresFloat[1];
+                } else if (valoresFloat.length >= 3) {
+                    fCompD = valoresFloat[0];
+                    fCompN = valoresFloat[1];
+                    rnCalculado = valoresFloat[2];
                 }
             }
 
@@ -606,7 +614,7 @@ function parsearTextoMalla(textoBruto) {
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se pudieron leer las filas de la imagen. Verifica la claridad de la captura.");
+        alert("No se identificaron filas válidas. Revisa que la imagen contenga la tabla de la malla.");
         return;
     }
 
