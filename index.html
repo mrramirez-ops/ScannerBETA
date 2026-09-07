@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UT R&T - Extractor de Malla Operativa</title>
+    <title>UT R&T - Extractor Malla de Alta Precisión</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -102,9 +102,9 @@
         }
 
         .stat-card-ut.navy { background: linear-gradient(135deg, #002B49 0%, #00406C 100%); border-left: 5px solid var(--ut-accent); }
+        .stat-card-ut.red { background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); border-left: 5px solid #FCA5A5; }
         .stat-card-ut.blue { background: linear-gradient(135deg, #005691 0%, #0077C8 100%); border-left: 5px solid #38BDF8; }
         .stat-card-ut.dark { background: linear-gradient(135deg, #1E293B 0%, #334155 100%); border-left: 5px solid #94A3B8; }
-        .stat-card-ut.red { background: linear-gradient(135deg, #B91C1C 0%, #E30613 100%); border-left: 5px solid #FCA5A5; }
 
         .stat-card-title {
             font-family: 'Montserrat', sans-serif;
@@ -217,7 +217,7 @@
             <div class="brand-badge">R&T</div>
             <div>
                 <h1 class="brand-text-title text-white fs-5 mb-0">Unión Temporal R&T</h1>
-                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Malla por Coordenadas Exactas</p>
+                <p class="mb-0 text-white-50" style="font-size: 0.75rem;">Procesador de Alta Precisión por Mapeo de Columnas</p>
             </div>
         </div>
         <div class="text-end text-white">
@@ -306,7 +306,7 @@
             <h5 class="mb-0 text-uppercase fw-bold text-primary" style="font-size: 0.95rem;">
                 <i class="fa-solid fa-list-check me-2 text-danger"></i>Lectura de Filas Detectadas
             </h5>
-            <span class="badge bg-dark px-3 py-2">Mapeo por Coordenada Horizontal</span>
+            <span class="badge bg-success px-3 py-2"><i class="fa-solid fa-bullseye me-1"></i> Anclaje Automático por Encabezados</span>
         </div>
         
         <div class="card-body p-0">
@@ -473,7 +473,7 @@ async function procesarImagenConAPI() {
     }
 
     status.className = "badge bg-warning text-dark text-wrap p-2 w-100";
-    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Analizando números con Google Cloud Vision...';
+    status.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Analizando estructura matricial...';
 
     try {
         const base64Image = await fileToBase64(fileToProcess);
@@ -500,13 +500,13 @@ async function procesarImagenConAPI() {
         const data = await response.json();
 
         status.className = "badge bg-success text-wrap p-2 w-100";
-        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Extracción numérica completada.';
+        status.innerHTML = '<i class="fa-solid fa-check me-1"></i> Extracción de alta precisión finalizada.';
 
         const annotations = data.responses[0]?.textAnnotations;
         if (annotations && annotations.length > 1) {
-            parsearAnotacionesFlexible(annotations);
+            procesarConMapeoAnclado(annotations);
         } else {
-            alert("Google Vision no detectó texto o números legibles.");
+            alert("Google Vision no detectó texto suficiente en la imagen.");
         }
 
     } catch (err) {
@@ -517,100 +517,116 @@ async function procesarImagenConAPI() {
     }
 }
 
-function parsearAnotacionesFlexible(annotations) {
+function procesarConMapeoAnclado(annotations) {
     const palabras = annotations.slice(1);
-    
-    // 1. Obtener los límites del lienzo para calcular columnas por porcentaje
-    let minX = Infinity, maxX = -Infinity;
+
+    // 1. Detección del punto de anclaje de las columnas de la derecha
+    // Buscamos las palabras clave de los encabezados para calcular sus límites X reales
+    let xMinRecargos = Infinity;
+    let xMaxImagen = -Infinity;
+
     palabras.forEach(p => {
         const x = p.boundingPoly.vertices[0].x || 0;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
+        if (x > xMaxImagen) xMaxImagen = x;
+        
+        // Detectar dónde comienzan los encabezados de "Extra" o "Rec. festivo" o "Recargo"
+        if (/Extra|festivo|nocturno|compensa/i.test(p.description)) {
+            if (x < xMinRecargos) xMinRecargos = x;
+        }
     });
-    const anchoTotal = maxX - minX;
 
-    // 2. Agrupar palabras por filas (Eje Y)
-    const filasAgrupadas = {};
+    // Si no encuentra los encabezados explícitos, toma como salvaguarda el 62% del ancho total de la imagen
+    if (xMinRecargos === Infinity) {
+        xMinRecargos = xMaxImagen * 0.62;
+    }
+
+    // 2. Agrupar palabras estrictamente por renglones (Línea Y)
+    const filasMap = {};
     palabras.forEach(p => {
         const y = p.boundingPoly.vertices[0].y || 0;
         const x = p.boundingPoly.vertices[0].x || 0;
-        
-        let claveFila = Object.keys(filasAgrupadas).find(k => Math.abs(k - y) < 10);
+
+        let claveFila = Object.keys(filasMap).find(k => Math.abs(k - y) < 10);
         if (!claveFila) {
             claveFila = y;
-            filasAgrupadas[claveFila] = [];
+            filasMap[claveFila] = [];
         }
-        filasAgrupadas[claveFila].push({ 
-            x: x, 
-            pctX: (x - minX) / anchoTotal, // Posición horizontal relativa (0% a 100%)
-            texto: p.description 
-        });
+        filasMap[claveFila].push({ x: x, texto: p.description });
     });
 
     datosExtraidos = [];
-    let filaIndex = 1;
-    const llavesOrdenadas = Object.keys(filasAgrupadas).sort((a, b) => parseFloat(a) - parseFloat(b));
+    const llavesOrdenadasY = Object.keys(filasMap).sort((a, b) => parseFloat(a) - parseFloat(b));
 
-    llavesOrdenadas.forEach(yKey => {
-        const palabrasFila = filasAgrupadas[yKey].sort((a, b) => a.x - b.x);
-        const textoLinea = palabrasFila.map(p => p.texto).join(" ");
+    llavesOrdenadasY.forEach(yKey => {
+        const palabrasFila = filasMap[yKey].sort((a, b) => a.x - b.x);
+        const textoCompletoFila = palabrasFila.map(p => p.texto).join(" ");
 
-        // Omitir encabezados o la fila de totales del final
-        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales/i.test(textoLinea) && !textoLinea.includes("ago")) {
+        // Omitir líneas de encabezado o de totales de la hoja
+        if (/Tiempo|Segmento|Complemento|Extra|ordinary|Totales|Observaci/i.test(textoCompletoFila)) {
             return;
         }
 
-        let fecha = `--`;
-        let diaSemana = `--`;
+        // Búsqueda estricta de patrón de Fecha (Ej: 1-ago, 02-ago, 31-ago)
+        const matchFecha = textoCompletoFila.match(/\b(\d{1,2})[-/\s]?(ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)\b/i);
+
+        let fecha = matchFecha ? matchFecha[0] : "";
+        let diaSemana = "--";
         let inicio = "--";
         let fin = "--";
         let turno = "--";
         let tipo = "--";
 
-        // Extraer texto base
-        const matchFecha = textoLinea.match(/(\d{1,2})[-/](ago|aug|ene|feb|mar|abr|may|jun|jul|sep|oct|nov|dic)/i);
-        if (matchFecha) fecha = matchFecha[0];
-        else fecha = `Item ${filaIndex}`;
-
-        const matchDia = textoLinea.match(/\b(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo)\b/i);
+        const matchDia = textoCompletoFila.match(/\b(Lunes|Martes|Miércoles|Miercoles|Jueves|Viernes|Sábado|Sabado|Domingo)\b/i);
         if (matchDia) diaSemana = matchDia[0];
 
-        const horas = textoLinea.match(/(\d{1,2}:\d{2})/g);
+        const horas = textoCompletoFila.match(/(\d{1,2}:\d{2})/g);
         if (horas && horas.length >= 2) {
             inicio = horas[0];
             fin = horas[1];
         }
 
-        const matchTurno = textoLinea.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
+        const matchTurno = textoCompletoFila.match(/(CTR-\d\s?[A-Z]{2}|TRL\s?[A-Z]{2}\s?\([A-Z-]+\)|CTR-\d\s?NC)/i);
         if (matchTurno) turno = matchTurno[0];
 
-        const matchTipo = textoLinea.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
+        const matchTipo = textoCompletoFila.match(/\b(T1|T2|T3|T14\s?AP|O|AUS)\b/i);
         if (matchTipo) tipo = matchTipo[0];
 
-        // 3. Filtrar números ÚNICAMENTE si están en la mitad derecha de la tabla (> 65% del ancho)
+        // 3. Extracción de Números de Recargo (SOLO si están a la derecha del Anclaje xMinRecargos)
         let fCompD = 0, fCompN = 0, fNoCompD = 0, fNoCompN = 0, rnCalculado = 0;
 
-        palabrasFila.forEach(p => {
-            // Si la palabra está en la zona de recargos (lado derecho de la tabla)
-            if (p.pctX > 0.65) {
-                const numLimpio = p.texto.replace(',', '.');
-                const val = parseFloat(numLimpio);
+        // Ancho útil de la zona de recargos
+        const anchoZonaRecargos = xMaxImagen - xMinRecargos;
+        const colWidth = anchoZonaRecargos / 5; // Dividido exactamente en las 5 columnas finales
 
+        palabrasFila.forEach(p => {
+            // SOLO evaluamos palabras situadas dentro del sector de recargos
+            if (p.x >= xMinRecargos - 10) {
+                const valLimpio = p.texto.replace(',', '.');
+                const val = parseFloat(valLimpio);
+
+                // Evita que días de la fecha o códigos entren como recargos
                 if (!isNaN(val) && val > 0 && val <= 24) {
-                    // Mapeo según posición horizontal (% X)
-                    if (p.pctX >= 0.65 && p.pctX < 0.73) fCompD = val;
-                    else if (p.pctX >= 0.73 && p.pctX < 0.79) fCompN = val;
-                    else if (p.pctX >= 0.79 && p.pctX < 0.85) fNoCompD = val;
-                    else if (p.pctX >= 0.85 && p.pctX < 0.91) fNoCompN = val;
-                    else if (p.pctX >= 0.91) rnCalculado = val;
+                    const offsetRelativo = p.x - xMinRecargos;
+
+                    if (offsetRelativo < colWidth) {
+                        fCompD = val;
+                    } else if (offsetRelativo < colWidth * 2) {
+                        fCompN = val;
+                    } else if (offsetRelativo < colWidth * 3) {
+                        fNoCompD = val;
+                    } else if (offsetRelativo < colWidth * 4) {
+                        fNoCompN = val;
+                    } else {
+                        rnCalculado = val;
+                    }
                 }
             }
         });
 
-        // Guardar la fila si contiene algún dato válido
-        if (matchFecha || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
+        // Solo agregar al listado final si se detectó una fecha válida o si hay recargos registrados
+        if (fecha || fCompD > 0 || fCompN > 0 || fNoCompD > 0 || fNoCompN > 0 || rnCalculado > 0) {
             datosExtraidos.push({
-                fecha: fecha,
+                fecha: fecha || `--`,
                 dia: diaSemana,
                 inicio: inicio,
                 fin: fin,
@@ -622,12 +638,11 @@ function parsearAnotacionesFlexible(annotations) {
                 fNoCompN: fNoCompN,
                 rn: rnCalculado
             });
-            filaIndex++;
         }
     });
 
     if (datosExtraidos.length === 0) {
-        alert("No se encontraron filas con recargos válidos.");
+        alert("No se lograron mapear filas con fechas o recargos válidos.");
         return;
     }
 
@@ -649,7 +664,7 @@ function renderizarMalla() {
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td class="fw-bold">${item.fecha}</td>
+            <td class="fw-bold text-primary">${item.fecha}</td>
             <td><span class="badge bg-light text-dark border">${item.dia}</span></td>
             <td>${item.inicio}</td>
             <td>${item.fin}</td>
